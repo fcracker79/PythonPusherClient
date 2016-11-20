@@ -1,7 +1,8 @@
 language: python
 python:
 # Twisted not supported in Python 2.6.
-  - "2.6"
+# Even with Twisted 15.4, there are issues with autobahn.
+#  - "2.6"
   - "2.7"
   # Disable testing 3.2 since autobahn uses unicode literal syntax that wasn't
   # re-added into 3.3.  See PEP 414
