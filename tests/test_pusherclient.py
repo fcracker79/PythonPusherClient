@@ -1,89 +1,73 @@
-#!/usr/bin/env python
-
-import sys
+import json
 import time
-import threading
-
-import pusherclient
-import pusherserver
+from unittest import TestCase
 
 try:
-    import simplejson as json
+    from unittest import mock
 except ImportError:
-    import json
-
-# Add a logging handler so we can see the raw communication data
-import logging
-root = logging.getLogger()
-root.setLevel(logging.INFO)
-ch = logging.StreamHandler(sys.stdout)
-root.addHandler(ch)
-
-PORT = 9000
-
-SUCCESS = 0
-ERR_FAILED = 1
-ERR_TIMEOUT = 2
-
-global client
-global server
-global exit_code
-
-def test_channel_callback(data):
-    global exit_code
-    print("Client: %s" % data)
-
-    data = json.loads(data)
-
-    if 'message' in data:
-        if data['message'] == "test":
-            # Test successful
-            exit_code = SUCCESS
-            server.stop()
-            sys.exit(exit_code)
+    # noinspection PyUnresolvedReferences
+    import mock
 
 
-def connect_handler(data):
-    channel = client.subscribe("test_channel")
-    channel.bind('test_event', test_channel_callback)
+import pusherclient
+from tests import pusherserver
 
 
-def stop_test():
-    global exit_code
+class TestPusherClient(TestCase):
+    _PORT = 9000
+    _MAX_ELAPSED_TIME_SECS = 10
 
-    exit_code = ERR_TIMEOUT
+    def test(self):
+        server = pusherserver.Pusher(pusherserver.PusherTestServerProtocol, port=self._PORT)
 
-    client.disconnect()
-    server.stop(fromThread=True)
+        def _stop_test():
+            print('Stop timer')
+            client.disconnect()
+            server.stop(fromThread=True)
 
-if __name__ == '__main__':
-    global client
-    global server
-    global exit_code
+        stop_test = mock.Mock()
+        stop_test.side_effect = _stop_test
 
-    exit_code = ERR_FAILED
+        success_mock = mock.Mock()
 
-    # If testing taking longer than N seconds, we have an issue.  This time
-    # depends on the client reconnect interval most of all.
-    timer = threading.Timer(10, stop_test)
-    timer.daemon = True
-    timer.start()
+        def _test_channel_callback(data):
+            print("Client: %s" % data)
 
-    # Set up our client and attempt to connect to the server
-    appkey = 'appkey'
-    pusherclient.Pusher.host = "127.0.0.1"
-    client = pusherclient.Pusher(appkey, port=PORT, secure=False, reconnect_interval=1)
+            data = json.loads(data)
 
-    print(client._build_url("mykey", False, port=PORT))
-    client.connection.bind('pusher:connection_established', connect_handler)
-    client.connect()
+            if 'message' in data:
+                if data['message'] == "test":
+                    # Test successful
+                    success_mock()
+                    server.stop()
+                    client.disconnect()
 
-    # Sleep a bit before starting the server - this will cause the clients
-    # initial connect to fail, forcing it to use the retry mechanism
-    time.sleep(2)
+        test_channel_callback = mock.Mock()
+        test_channel_callback.side_effect = _test_channel_callback
 
-    # Start our pusher server on localhost
-    server = pusherserver.Pusher(pusherserver.PusherTestServerProtocol, port=PORT)
-    server.run()
+        def _connect_handler(_):
+            channel = client.subscribe("test_channel")
+            channel.bind('test_event', test_channel_callback)
 
-    sys.exit(exit_code)
+        connect_handler = mock.Mock()
+        connect_handler.side_effect = _connect_handler
+
+        # Set up our client and attempt to connect to the server
+        appkey = 'appkey'
+        pusherclient.Pusher.host = "127.0.0.1"
+        client = pusherclient.Pusher(appkey, port=self._PORT, secure=False, reconnect_interval=1)
+
+        print(client._build_url("mykey", False, port=self._PORT))
+        client.connection.bind('pusher:connection_established', connect_handler)
+        client.connect()
+
+        # Sleep a bit before starting the server - this will cause the clients
+        # initial connect to fail, forcing it to use the retry mechanism
+        time.sleep(2)
+
+        start = time.time()
+        # Start our pusher server on localhost
+        server.run()
+
+        if not success_mock.call_count or time.time() - start > self._MAX_ELAPSED_TIME_SECS:
+            self.fail('Successful callback not called')

@@ -1,3 +1,7 @@
 *.pyc
 /*.egg-info/
 /dist/
+.cache
+.idea
+venv
+venv2
