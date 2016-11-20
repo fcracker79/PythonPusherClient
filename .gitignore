@@ -4,4 +4,4 @@
 .cache
 .idea
 venv
-venv2
+venv*
